@@ -1,0 +1,197 @@
+Kaggle link :- https://www.kaggle.com/datasets/thedevastator/analyzing-credit-card-spending-habits-in-india/discussion
+
+import the dataset in sql server or any sql platform with table name : credit_card_transcations
+
+These topics you will learn when you solve this case study.
+
+1- Date functions: DATEDIFF, DATEPART, DATEADD
+2- CASE WHEN Statement
+3- Aggregate functions with CASE WHEN, GROUP BY, ORDER BY
+4- Joins
+5- Window functions(DENSE_RANK, LEAD, LAG)
+6- CTE(common table expression)
+
+There were total 9 questions.
+1. write a query to print top 5 cities with highest spends and their percentage contribution of total credit card spends 
+2. write a query to print highest spend month and amount spent in that month for each card type
+3. write a query to print the transaction details(all columns from the table) for each card type when
+it reaches a cumulative of 1000000 total spends(We should have 4 rows in the o/p one for each card type)
+4. write a query to find city which had lowest percentage spend for gold card type
+5. write a query to print 3 columns: city, highest_expense_type , lowest_expense_type (example format : Delhi , bills, Fuel)
+6. write a query to find percentage contribution of spends by females for each expense type
+7. which card and expense type combination saw highest month over month growth in Jan-2014
+8. during weekends which city has highest total spend to total no of transcations ratio 
+9. which city took least number of days to reach its 500th transaction after first transaction in that city
+
+
+1. 
+
+with cte as
+(select city, sum(amount) over (partition by city)max_amount
+from credit_card)
+
+
+select distinct top 5 city, max_amount, replace(round((max_amount*1.0/(select sum(cast(Amount as bigint)) from credit_card))*100,2), '0', '') as percentage_contribution
+from cte
+order by max_amount desc
+
+2. 
+
+with cte as
+
+(select card_type, datename(mm, date)as month_name, sum(amount)highest_amount
+
+from Credit_card
+
+group by card_type,datename(mm, date))
+
+,cte1 as
+(select *, dense_rank() over (partition by card_type order by highest_amount desc)dr 
+from cte)
+
+select * from cte1 
+where dr = 1
+
+3. 
+
+with cte as
+(select [index], card_type, sum(cast(amount as bigint)) over (partition by card_type order by [index])running_sum
+from Credit_card)
+
+,above_10lakh as
+
+(select *, row_number() over (partition by card_type order by running_sum)rn from cte
+where running_sum >=1000000)
+
+select * from above_10lakh
+where rn = 1
+
+
+4. 
+
+with cte as
+(select city, sum(amount)as highest_gold_spent
+from 
+Credit_card
+where card_type = 'gold'
+group by city)
+
+, cte1 as 
+(select city, sum(amount)as highest_spent
+from 
+Credit_card
+group by city)
+
+, final_cte as
+(select cte.city, replace(round((highest_gold_spent*1.0/ highest_spent)*100,2), '0', '')lowest_percentage 
+from cte 
+join cte1 on cte.city = cte1.city)
+
+select city from final_cte
+where lowest_percentage  = (select min(lowest_percentage) from final_cte)
+
+
+5. 
+
+
+with cte as
+(
+select city, exp_type, sum(amount)highest_amount
+from Credit_card
+group by city, exp_type
+)
+,cte1 as
+(select city, max(highest_amount)high, min(highest_amount)low from cte
+group by city)
+
+select c1.city, max(case when c1.highest_amount = c2.high then exp_type end)highest_expense_type
+, max(case when c1.highest_amount = c2.low then exp_type end)lowest_expense_type
+from cte c1
+join cte1 c2 on c1.city = c2.city
+group by c1.city
+
+6. 
+
+
+with cte as
+(select exp_type, sum(amount)exp_type_f
+from Credit_card
+where gender = 'f'
+group by Exp_Type)
+,cte1 as
+(select exp_type, sum(amount)high_exp_type
+from Credit_card
+group by Exp_Type)
+
+select cte.exp_type, replace(round((exp_type_f*1.0/high_exp_type)*100,2), '0', '') from cte
+join cte1 on cte.Exp_Type = cte1.Exp_Type
+
+
+7.
+
+
+with cte as
+(select 
+card_type, Exp_Type,DATEPART(year, date) as trans_year, DATEPART(month, date) as trans_month
+,sum(amount)total_amount
+from Credit_card
+group by card_type, Exp_Type
+,DATEPART(year, date), DATEPART(month, date))
+
+, cte1 as
+(select *,
+lag(total_amount,1) over (Partition by card_type, exp_type order by trans_year, trans_month)as prev_month_total_amount
+from cte)
+, final_cte as
+(select *,
+(total_amount- prev_month_total_amount)*1.0 / prev_month_total_amount * 100 as per_growth
+from cte1
+
+where trans_year = 2014 and trans_month = 1)
+
+select top 1 *
+
+from final_cte
+
+order by per_growth desc
+
+
+8.
+
+with cte as
+
+(select city, datename(weekday, date)weekday, amount
+
+from Credit_card
+
+where datename(weekday, date) in ('Saturday', 'Sunday'))
+,final as
+(select city, sum(amount)/count(city)ratio from cte 
+
+group by city)
+
+
+select top 1 city, ratio from final
+order by ratio desc
+
+9.
+
+with cte as
+(select city,date, row_number() over (partition by city order by date)dr
+from Credit_card)
+,max_date as
+(select city,max(date)max_date from cte 
+where dr = 500
+group by city)
+,min_date as
+(select city, min(date)min_date from Credit_card
+group by city
+)
+,least_days as
+(select min_date.city,datediff(day,min_date,max_date)min_days_500_transaction from min_date 
+join max_date on min_date.city = max_date.City)
+
+select * from least_days
+where min_days_500_transaction = (select min(min_days_500_transaction) from least_days)
+
+
